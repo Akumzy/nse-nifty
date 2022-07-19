@@ -1,36 +1,33 @@
 // Next.js API route support: https://nextjs.org/docs/api-routes/introduction
 
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { fetch } from 'undici'
 
-import { exec, spawn } from 'child_process'
+import axios from 'axios'
 const url_oc = "https://www.nseindia.com/option-chain"
+// Init instance of axios which works with BASE_URL
+const axiosInstance = axios.create({ baseURL: url_oc })
 
-let cookie = ""
 export default async function handler (
   req: NextApiRequest,
   res: NextApiResponse<OptionsAPIResponse | { error: any }>
 ) {
   try {
     // const response = await fetch(`https://www.nseindia.com/api/option-chain?symbol=${req.query.symbol}&expiry=${req.query.expiry}`)
-    if (cookie === "") {
-      const cookie_response = await fetch(url_oc)
-      cookie = cookie_response.headers.get("set-cookie") || ""
-    }
 
-
-    const response = await fetch("https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY", {
+    const { data } = await axiosInstance.get<NSEOptionChainResponse>(`https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY`, {
       "headers": {
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36',
-        'cookie': cookie,
+        "accept": "*/*",
         "accept-language": "en-US,en;q=0.9,en-GB;q=0.8",
-        "referer": "https://www.nseindia.com/option-chain",
+        "sec-ch-ua": "\".Not/A)Brand\";v=\"99\", \"Google Chrome\";v=\"103\", \"Chromium\";v=\"103\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"macOS\"",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "Referer": "https://www.nseindia.com/option-chain",
       },
-      "method": "GET"
-    })
-    const data = (await response.json()) as NSEOptionChainResponse
 
-    console.log(data)
+    })
     if (!data) {
       res.status(404).json({ error: 'Not found' })
       return
@@ -70,45 +67,67 @@ export default async function handler (
 }
 
 
-// function execute (command: string, callback: { (resp: any): void; (arg0: string): void }) {
-//   exec(command, {
-//     maxBuffer: 1024 * 1000 * 10
-//   }, function (error, stdout, stderr) {
-//     callback(stdout)
-//   })
-// };
+const createSession = async () => {
 
-// function isJson (text: string) {
-//   try {
-//     return JSON.parse(text)
-//   } catch (err) {
-//     return false
-//   }
-// }
+  const resp = await axios.get(url_oc)
+  const [cookie] = resp.headers["set-cookie"] || []// getting cookie from request
+  // @ts-ignore
+  axiosInstance.defaults.headers.Cookie = cookie // attaching cookie to axiosInstance for future requests
+  return cookie // return Promise<cookie> because func is async
+}
 
-// function getOptionChain (instrument: string) {
-//   return new Promise((resolve, reject) => {
-//     execute(`curl 'https://www.nseindia.com/api/option-chain-indices?symbol=${instrument}' \
-//     -H 'authority: www.nseindia.com' \
-//     -H 'cache-control: max-age=0' \
-//     -H 'dnt: 1' \
-//     -H 'upgrade-insecure-requests: 1' \
-//     -H 'user-agent: Mozilla/5.0 (X11; CentOS; Linux x86_64; rv:36.0) Gecko/20100101 Firefox/36.0' \
-//     -H 'accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9' \
-//     -H 'sec-fetch-site: none' \
-//     -H 'sec-fetch-mode: navigate' \
-//     -H 'sec-fetch-user: ?1' \
-//     -H 'sec-fetch-dest: document' \
-//     -H 'accept-language: en-IN,en;q=0.9,en-GB;q=0.8,en-US;q=0.7,hi;q=0.6,mr;q=0.5' \
-//     --compressed`, function (resp: any) {
+let isGetActiveSessionRequest = false
+let requestQueue: any[] = []
 
-//       let isValidData = isJson(resp)
-//       if (isValidData) {
-//         resolve(isValidData)
-//       } else {
-//         resolve(null)
-//       }
-//     })
+const callRequestsFromQueue = (cookie: string) => {
+  requestQueue.forEach(sub => sub(cookie))
+}
+const addRequestToQueue = (sub: (cookie: any) => void) => {
+  requestQueue.push(sub)
+}
+const clearQueue = () => {
+  requestQueue = []
+}
 
-//   })
-// }
+// registering axios interceptor which handle response's errors
+// @ts-ignore
+axiosInstance.interceptors.response.use(null, error => {
+  console.error(error.message) //logging here
+
+  const { response = {}, config: sourceConfig } = error
+
+  // checking if request failed cause Unauthorized
+  if (response.status === 401) {
+    // if this request is first we set isGetActiveSessionRequest flag to true and run createSession
+    if (!isGetActiveSessionRequest) {
+      isGetActiveSessionRequest = true
+      createSession().then(cookie => {
+        // when createSession resolve with cookie value we run all request from queue with new cookie
+        isGetActiveSessionRequest = false
+        callRequestsFromQueue(cookie)
+        clearQueue() // and clean queue
+      }).catch(e => {
+        isGetActiveSessionRequest = false // Very important!
+        console.error('Create session error %s', e.message)
+        clearQueue()
+      })
+    }
+
+    // and while isGetActiveSessionRequest equal true we create and return new promise
+    const retryRequest = new Promise(resolve => {
+      // we push new function to queue
+      addRequestToQueue(cookie => {
+        // function takes one param 'cookie'
+        console.log("Retry with new session context %s request to %s", sourceConfig.method, sourceConfig.url)
+        sourceConfig.headers.Cookie = cookie // setting cookie to header
+        resolve(axios(sourceConfig)) // and resolve promise with axios request by old config with cookie
+        // we resolve exactly axios request - NOT axiosInstance's request because it could call recursion
+      })
+    })
+
+    return retryRequest
+  } else {
+    // if error is not related with Unauthorized we just reject promise
+    return Promise.reject(error)
+  }
+})

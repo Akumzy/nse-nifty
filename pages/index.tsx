@@ -11,7 +11,7 @@ const headers = ["Strike", "Last", "Open Interest", "Change in OI", "Odin Percen
 const fetcher: Fetcher<OptionsAPIResponse> = (url: string) => fetch(url).then((r) => r.json())
 const Home: NextPage = () => {
   const { data, error } = useSWR(`/api/nse`, fetcher, {
-    refreshInterval: 30000,
+    refreshInterval: 60 * 1000,
   })
   const filtered = data?.filtered
   const peOptions = useMemo(
