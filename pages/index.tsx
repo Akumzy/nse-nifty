@@ -11,7 +11,7 @@ const headers = ["Strike", "Last", "Open Interest", "Change in OI", "Odin Percen
 const fetcher: Fetcher<OptionsAPIResponse> = (url: string) => fetch(url).then((r) => r.json())
 const Home: NextPage = () => {
   const { data, error } = useSWR(`/api/nse`, fetcher, {
-    refreshInterval: 60 * 1000,
+    // refreshInterval: 60 * 1000,
   })
   const filtered = data?.filtered
   const peOptions = useMemo(
@@ -86,13 +86,7 @@ function OptionsTable({ options, currentStrikePrice }: { options: Options; curre
       <tbody>
         {options.map((option) => (
           <tr key={option.strikePrice} className="">
-            <td
-              className={`border border-slate-700 ${
-                currentStrikePrice === option.strikePrice ? " bg-blue-700 text-white" : ""
-              }`}
-            >
-              {option.strikePrice}
-            </td>
+            <td className={`border border-slate-700 ${currentStrikePrice === option.strikePrice ? " bg-blue-700 text-white" : ""}`}>{option.strikePrice}</td>
             <td className="border border-slate-700">{option.record.lastPrice}</td>
             <td className="border border-slate-700">{option.record.openInterest}</td>
             <td className="border border-slate-700">{option.record.changeinOpenInterest}</td>
