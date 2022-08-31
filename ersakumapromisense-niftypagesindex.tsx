@@ -1,4 +1,4 @@
-[33mcommit 8093370d547bc7a5a1ec8584d4b7edbfe86f7afd[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m)[m
+33mcommit, 8093370d547bc7a5a1ec8584d4b7edbfe86f7afd[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m)[m
 Author: Promise <pebuka351@gmail.com>
 Date:   Tue Aug 30 02:37:59 2022 -0700
 
